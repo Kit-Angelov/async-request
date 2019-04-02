@@ -1,8 +1,9 @@
-from flask import Flask, request, Response
+from flask import Flask, request, Response, jsonify
 import asyncio
 import queue
 import requests
 import json
+import time
 
 app = Flask(__name__)
 
@@ -14,7 +15,6 @@ sources = [
         'url': 'http://localhost:5000/data/third.json',
     },
     {   
-        'init': True,
         'url': 'http://localhost:5000/data/first.json',
     },
     {
@@ -36,15 +36,11 @@ def producer(source):
     r = requests.get(source['url'], stream=True, timeout=2)
     if r.status_code != 200:
         return
-    
-    sended_start = False
+
     for chunk in r.iter_lines(chunk_size=20, delimiter=b'\n'):
         if chunk:
             chunk_dict = json.loads(chunk)
             q.put((chunk_dict['id'], chunk_dict['name']))
-            if source.get('init') and not sended_start:
-                init.put('start')
-                sended_start = True
 
 
 async def run():
@@ -55,39 +51,32 @@ async def run():
 
 @app.route('/')
 def index():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     loop.run_until_complete(run())
     
     def generate():
-        start = True
-        while start:
-            signal = init.get()
-            print(signal)
-            if signal:
-                start = False
-        print('gen')
+        send_started = False
         index = 0
-        print(q.empty())
-        while not q.empty():
-            print('start')
-            item = q.get(timeout=2)
-            print(item)
+        empty = False
+        while not empty:
+            try:
+                item = q.get(timeout=2)
+            except:
+                empty = True
+                continue
             if item[0] == index + 1:
                 index += 1
-                print(item)
                 item_dict = {
                     'id': item[0],
                     'name': item[1]
                 }
                 yield json.dumps(item_dict) + '\n'
             elif item[0] <= index:
-                print('pass')
-                print(q.get())
+                continue
             else:
-                print(item)
                 q.put(item)
     return Response(generate(), mimetype='application/json')
 
 if __name__ == '__main__':
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     app.run()
