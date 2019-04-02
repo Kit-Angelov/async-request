@@ -4,11 +4,23 @@ import queue
 import requests
 import json
 
-app = Flask(__name__, static_url_path='')
+app = Flask(__name__)
 
 q = queue.PriorityQueue()
 init = queue.Queue()
 
+sources = [
+    {
+        'url': 'http://localhost:5000/data/third.json',
+    },
+    {   
+        'init': True,
+        'url': 'http://localhost:5000/data/first.json',
+    },
+    {
+        'url': 'http://localhost:5000/data/second.json',
+    }
+]
 
 @app.route('/data/<path:path>')
 def send_json(path):
@@ -16,7 +28,6 @@ def send_json(path):
         data = json.load(json_file)
         def generate():
             for item in data:
-                # time.sleep(0.1)
                 yield json.dumps(item) + '\n'
         return Response(generate(), mimetype='application/json')
 
@@ -44,32 +55,39 @@ async def run():
 
 @app.route('/')
 def index():
-    sources = [
-        {
-            'url': 'http://localhost:5000/data/third.json',
-        },
-        {   
-            'init': True,
-            'url': 'http://localhost:5000/data/first.json',
-        },
-        {
-            'url': 'http://localhost:5000/data/second.json',
-        }
-    ]
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     loop.run_until_complete(run())
-    start = True
-    while start:
-        signal = init.get()
-        print(signal)
-        if signal:
-            start = False
     
     def generate():
-            while True:
+        start = True
+        while start:
+            signal = init.get()
+            print(signal)
+            if signal:
+                start = False
+        print('gen')
+        index = 0
+        print(q.empty())
+        while not q.empty():
+            print('start')
+            item = q.get(timeout=2)
+            print(item)
+            if item[0] == index + 1:
+                index += 1
+                print(item)
+                item_dict = {
+                    'id': item[0],
+                    'name': item[1]
+                }
+                yield json.dumps(item_dict) + '\n'
+            elif item[0] <= index:
+                print('pass')
                 print(q.get())
-                yield json.dumps(item) + '\n'
-    return jsonify(result)
+            else:
+                print(item)
+                q.put(item)
+    return Response(generate(), mimetype='application/json')
 
 if __name__ == '__main__':
     app.run()
