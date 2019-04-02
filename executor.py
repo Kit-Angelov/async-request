@@ -8,41 +8,45 @@ init = queue.Queue()
 
 sources = [
         {
-            'init': False,
             'url': 'http://localhost:5000/data/third.json',
         },
-        {
+        {   
             'init': True,
             'url': 'http://localhost:5000/data/first.json',
         },
         {
-            'init': False,
             'url': 'http://localhost:5000/data/second.json',
         }
 ]
 
 def producer(source):
     r = requests.get(source['url'], stream=True, timeout=2)
-    if source['init']:
-        init.put('start')
+    if r.status_code != 200:
+        return
+    
+    sended_start = False
     for chunk in r.iter_lines(chunk_size=20, delimiter=b'\n'):
         if chunk:
             chunk_dict = json.loads(chunk)
             q.put((chunk_dict['id'], chunk_dict['name']))
+            if source.get('init') and not sended_start:
+                init.put('start')
+                sended_start = True
 
 
 async def run():
-    stopping = True
     loop = asyncio.get_event_loop()
     for source in sources:
         loop.run_in_executor(None, producer, source)
-    while True:
+
+    start = True
+    while start:
         signal = init.get()
+        print(signal)
         if signal:
-            print(signal)
-            break
+            start = False
+    empty = False
     while True:
-        print('234')
         print(q.get())
 
 loop = asyncio.get_event_loop()
